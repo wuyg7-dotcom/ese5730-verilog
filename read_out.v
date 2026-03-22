@@ -3,7 +3,7 @@
 // Company: 
 // Engineer: 
 // 
-// Create Date: 2026/02/18 21:41:02
+// Create Date: 2026/03/22 18:17:03
 // Design Name: 
 // Module Name: read_out
 // Project Name: 
@@ -19,9 +19,10 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
+
 module spi_c_readout #(
-    parameter integer DEPTH = 36,
-    parameter integer AW    = 6
+    parameter integer DEPTH = 25,
+    parameter integer AW    = 5
 )(
     input  wire          clk,
     input  wire          rst_n,
@@ -44,11 +45,11 @@ module spi_c_readout #(
     localparam S_SHIFT = 3'd4;
     localparam S_NEXT  = 3'd5;
 
-    reg [2:0]  state;
-    reg [AW-1:0] idx;          // 0..DEPTH-1
-    reg [4:0]  bit_cnt;        // 0..23
-    reg [23:0] shreg;          // MSB-first out
-    reg [1:0]  wait_cnt;       // ? 新增：等 2 拍
+    reg [2:0]    state;
+    reg [AW-1:0] idx;        // 0..24
+    reg [4:0]    bit_cnt;    // 0..23
+    reg [23:0]   shreg;      // MSB-first out
+    reg [1:0]    wait_cnt;   // wait 2 cycles
 
     wire frame_active = ~cs_n;
 
@@ -90,7 +91,7 @@ module spi_c_readout #(
                         state    <= S_WAIT;
                     end
 
-                    // ? 等 2 个周期，匹配 mem36_dp 的 A 口延迟（更稳）
+                    // wait 2 cycles to match memory read latency
                     S_WAIT: begin
                         if (wait_cnt == 2'd1) begin
                             state <= S_LATCH;
@@ -99,9 +100,9 @@ module spi_c_readout #(
                         end
                     end
 
-                    // LO -> HI -> TOP(低4bit)
+                    // LO -> HI -> TOP[3:0]
                     S_LATCH: begin
-                        shreg <= { mem_lo_rdata, mem_hi_rdata, {4'b0000, mem_top_rdata[3:0]} };
+                        shreg   <= {mem_lo_rdata, mem_hi_rdata, {4'b0000, mem_top_rdata[3:0]}};
                         bit_cnt <= 5'd0;
                         state   <= S_SHIFT;
                     end
@@ -127,10 +128,11 @@ module spi_c_readout #(
                         end
                     end
 
-                    default: state <= S_IDLE;
+                    default: begin
+                        state <= S_IDLE;
+                    end
                 endcase
             end
         end
     end
 endmodule
-

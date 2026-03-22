@@ -3,7 +3,7 @@
 // Company: 
 // Engineer: 
 // 
-// Create Date: 2026/02/18 20:59:59
+// Create Date: 2026/03/22 18:08:48
 // Design Name: 
 // Module Name: serial_byte_packer
 // Project Name: 
@@ -19,6 +19,27 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
+
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 2026/02/18 20:59:59
+// Design Name: 
+// Module Name: serial_byte_packer
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
 
 module spi_lane_byte_rx #(
     parameter MSB_FIRST = 1   // 1: MSB-first, 0: LSB-first
@@ -67,3 +88,5 @@ module spi_lane_byte_rx #(
         end
     end
 endmodule
+
+
