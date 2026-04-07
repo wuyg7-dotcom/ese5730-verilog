@@ -1,0 +1,159 @@
+`timescale 1ns / 1ps
+
+module tb_top_system_final;
+
+    // ------------------------------------------------------------
+    // 1. 信号与变量定义
+    // ------------------------------------------------------------
+    reg clk, rst_n;
+    reg spi_cs_n, spi_din_a, spi_din_b;
+    wire spi_miso, spi_loaded, spi_error;
+    reg start;
+    wire done, sys_ready;
+
+    integer ii, jj, kk, acc, errors;
+    reg [3:0]  A [0:15], B [0:15];
+    reg [15:0] Cgold [0:15], c_read16;
+    reg [7:0]  hi_b, lo_b;
+
+    // 状态机常量 (请务必确认网表中这些状态的编码是否被综合器更改)
+    localparam S_SHIFT = 3'd4; 
+
+    // ------------------------------------------------------------
+    // 2. 实例化 DUT (顶层网表)
+    // ------------------------------------------------------------
+    top_system_final dut(
+        .clk(clk), .rst_n(rst_n),
+        .spi_cs_n(spi_cs_n), .spi_din_a(spi_din_a), .spi_din_b(spi_din_b),
+        .spi_miso(spi_miso), .spi_loaded(spi_loaded), .spi_error(spi_error),
+        .start(start), .done(done), .sys_ready(sys_ready)
+    );
+
+    // ------------------------------------------------------------
+    // 3. 网表修正补丁 (防止悬空引脚导致的 X 态传播)
+    // ------------------------------------------------------------
+    initial begin
+        #1; 
+        force dut.UNCONNECTED  = 1'b0;
+        force dut.UNCONNECTED0 = 1'b0;
+        force dut.UNCONNECTED1 = 1'b0;
+        force dut.UNCONNECTED2 = 1'b0;
+        force dut.UNCONNECTED3 = 1'b0;
+        force dut.UNCONNECTED4 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z33 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z34 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z35 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z36 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z37 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z38 = 1'b0;
+        force dut.UNCONNECTED5  = 1'b0;
+        force dut.UNCONNECTED6  = 1'b0;
+        force dut.UNCONNECTED7  = 1'b0;
+        force dut.UNCONNECTED8  = 1'b0;
+        force dut.UNCONNECTED9  = 1'b0;
+        force dut.UNCONNECTED10 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z  = 1'b0;
+        force dut.UNCONNECTED_HIER_Z0 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z1 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z2 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z3 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z4 = 1'b0;
+        force dut.UNCONNECTED_HIER_Z15 = 1'b0;
+    end
+
+    // ------------------------------------------------------------
+    // 4. 时钟生成与采样任务
+    // ------------------------------------------------------------
+    initial begin clk = 0; forever #5 clk = ~clk; end // 100MHz
+
+    // 改良版读取任务：在上升沿之后采样，避开网表延迟引起的跳变
+    task spi_read_byte_miso(output [7:0] data);
+        integer b;
+        begin
+            for (b = 7; b >= 0; b = b - 1) begin
+                @(posedge clk); 
+                #1; // 关键：增加1ns采样偏移，确保抓到稳定的电平
+                data[b] = spi_miso;
+            end
+        end
+    endtask
+
+    task spi_send_nibble_dual(input [3:0] nA, input [3:0] nB);
+        integer b;
+        begin
+            for (b = 3; b >= 0; b = b - 1) begin
+                spi_din_a = nA[b]; spi_din_b = nB[b]; @(negedge clk);
+            end
+        end
+    endtask
+
+    // ------------------------------------------------------------
+    // 5. 主测试逻辑
+    // ------------------------------------------------------------
+    initial begin
+        // 初始化与复位
+        spi_cs_n = 1; spi_din_a = 0; spi_din_b = 0; start = 0;
+        rst_n = 0; repeat(20) @(posedge clk); rst_n = 1;
+
+        // 准备随机数据与 Golden Model
+        for (ii = 0; ii < 16; ii = ii + 1) begin
+            A[ii] = $random % 16; B[ii] = $random % 16;
+        end
+        for (ii = 0; ii < 4; ii = ii + 1) begin
+            for (jj = 0; jj < 4; jj = jj + 1) begin
+                acc = 0;
+                for (kk = 0; kk < 4; kk = kk + 1) acc = acc + (A[ii*4+kk] * B[kk*4+jj]);
+                Cgold[ii*4+jj] = acc[15:0];
+            end
+        end
+
+        // 第一阶段：通过 SPI 写入 A 和 B
+        wait (sys_ready);
+        @(negedge clk); spi_cs_n = 0;
+        for (ii = 0; ii < 16; ii = ii + 1) spi_send_nibble_dual(A[ii], B[ii]);
+        @(negedge clk); spi_cs_n = 1;
+        
+        wait (spi_loaded);
+        repeat(10) @(negedge clk);
+        
+        // 第二阶段：启动矩阵乘法计算
+        start = 1; @(negedge clk); start = 0;
+        wait (done);
+        $display("--- Computation Done. Starting Readback ---");
+        repeat(10) @(posedge clk);
+
+        // 第三阶段：自适应读取数据 (核心修复逻辑)
+        errors = 0;
+        @(negedge clk); 
+        spi_cs_n = 0; // CS拉低触发 Readout
+
+        for (ii = 0; ii < 16; ii = ii + 1) begin
+            // 【自适应同步】直接等待硬件状态机进入 SHIFT 状态
+            // 如果网表改名了，请将此处路径替换为实际的状态寄存器路径
+            wait (dut.u_c_ro.state == S_SHIFT); 
+            
+            // 采样 MSB 后的 16 个 bit
+            spi_read_byte_miso(hi_b);
+            spi_read_byte_miso(lo_b);
+            c_read16 = {hi_b, lo_b};
+            
+            // 数据对比
+            if (c_read16 !== Cgold[ii]) begin
+                errors = errors + 1;
+                $display("ERROR [%0d]: Expect=%h, Read=%h", ii, Cgold[ii], c_read16);
+            end else begin
+                $display("MATCH [%0d]: %h", ii, c_read16);
+            end
+
+            // 【间隙处理】等待硬件离开 SHIFT 状态，准备处理下一个数据
+            wait (dut.u_c_ro.state != S_SHIFT);
+        end
+        
+        @(negedge clk); spi_cs_n = 1;
+
+        // 最终报告
+        if (errors == 0) $display("\n*** ALL 16 RESULTS PASSED (Gate-Level) ***\n");
+        else $display("\n*** FAILED: %d errors found ***\n", errors);
+
+        #500; $finish;
+    end
