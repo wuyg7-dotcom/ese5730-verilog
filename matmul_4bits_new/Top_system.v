@@ -23,7 +23,6 @@ module top_system_final(
     // ------------------------------------------------------------
     // 1. 显式定义常数信号（物理接地线）
     // ------------------------------------------------------------
-    // 先声明 wire，再用 assign 赋值，这种写法兼容性最强，不会报错
     wire        GND_BIT;
     wire [3:0]  GND_4BIT;
     wire [15:0] GND_16BIT;
@@ -89,7 +88,7 @@ module top_system_final(
     assign spi_error  = A_err | B_err;
 
     // ------------------------------------------------------------
-    // 5. 存储器实例化 (核心修复：补零与接地)
+    // 5. 存储器实例化
     // ------------------------------------------------------------
     wire [3:0]  memA_a_rdata, memB_a_rdata;
     wire [15:0] memC_a_rdata;
@@ -100,10 +99,10 @@ module top_system_final(
 
     wire        C_we;
     wire [3:0]  C_addr;
-    wire [9:0]  C_wdata_10bit; // 来自 FSM 的 10 位数据
-    wire [15:0] memC_b_wdata;  // 拼接给存储器的 16 位线缆
+    wire [9:0]  C_wdata_10bit; 
+    wire [15:0] memC_b_wdata;  
+    wire [3:0]  c_rd_addr; // 在此处统一定义，供给 u_memC 和 u_c_ro 使用
 
-    // 这里执行第二次补零：物理位宽适配
     assign memC_b_wdata = {GND_BIT, GND_BIT, GND_BIT, GND_BIT, GND_BIT, GND_BIT, C_wdata_10bit};
 
     mem16_dp #(.AW(4), .DW(4), .INIT_CLEAR(0)) u_memA (
@@ -120,8 +119,6 @@ module top_system_final(
         .b_rdata(memB_b_rdata), .b_rvalid(memB_b_rvalid), .init_busy(initB_busy)
     );
 
-    // C 存储器：A口读（SPI用），B口写（计算用）
-    wire [3:0] c_rd_addr; 
     mem16_dp #(.AW(4), .DW(16), .INIT_CLEAR(1)) u_memC (
         .clk(clk), .rst_n(rst_n),
         .a_we(GND_BIT), .a_addr(c_rd_addr), .a_wdata(GND_16BIT), .a_rdata(memC_a_rdata),
@@ -191,10 +188,10 @@ module top_system_final(
     );
 
     // ------------------------------------------------------------
-    // 8. 输出逻辑与 SPI 读取
+    // 8. 输出逻辑与 SPI 读取 (同步复位版本)
     // ------------------------------------------------------------
     reg done_sticky;
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk) begin  // 改为同步复位，解决 Genus MAP-2 报错
         if (!rst_n) 
             done_sticky <= 1'b0;
         else if (start_gated) 
