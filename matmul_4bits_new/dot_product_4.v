@@ -51,18 +51,17 @@ module dot_ij_engine_buf #(
     assign b_val = B_flat[b_idx*DW +: DW];
 
     // 乘法器实现
-    // 在这里显式定义位宽，防止综合工具在生成 Wallace Tree 时产生浮空引脚
     assign mult = a_val * b_val;
 
-    // 状态转移逻辑
-    always @(posedge clk or negedge rst_n) begin
+    // 状态转移逻辑 (已修改为同步复位)
+    always @(posedge clk) begin // 删除了 or negedge rst_n
         if (!rst_n)
             state <= D_IDLE;
         else
             state <= next_state;
     end
 
-    // 下一状态组合逻辑
+    // 下一状态组合逻辑 (保持不变，因为是组合逻辑 @*)
     always @(*) begin
         next_state = state;
         case (state)
@@ -87,15 +86,14 @@ module dot_ij_engine_buf #(
         endcase
     end
 
-    // 数据通路与控制逻辑
-    always @(posedge clk or negedge rst_n) begin
+    // 数据通路与控制逻辑 (已修改为同步复位)
+    always @(posedge clk) begin // 删除了 or negedge rst_n
         if (!rst_n) begin
-            busy       <= 1'b0;
-            done_pulse <= 1'b0;
-            sum        <= 10'd0;
-            k          <= 2'd0;
+            busy        <= 1'b0;
+            done_pulse  <= 1'b0;
+            sum         <= 10'd0;
+            k           <= 2'd0;
         end else begin
-            // 默认值，防止产生 Latch 或信号漂移
             done_pulse <= 1'b0;
 
             case (state)
@@ -103,15 +101,14 @@ module dot_ij_engine_buf #(
                     busy <= 1'b0;
                     if (start_ij) begin
                         busy <= 1'b1;
-                        sum  <= 10'd0; // 启动时清空累加器
+                        sum  <= 10'd0; 
                         k    <= 2'd0;
                     end
                 end
 
                 D_MAC: begin
                     busy <= 1'b1;
-                    // 修复：显式补零拼接。如果 DW=4，2*DW=8。
-                    // 用 {2'b00, mult} 确保 10 位全满，不给综合工具留下悬空输入。
+                    // 显式补零拼接逻辑保持不变
                     sum  <= sum + {{ (10-(2*DW)) {1'b0} }, mult};
                     
                     if (k == 2'd3)
@@ -121,13 +118,13 @@ module dot_ij_engine_buf #(
                 end
 
                 D_DONE: begin
-                    busy       <= 1'b0;
-                    done_pulse <= 1'b1;
+                    busy        <= 1'b0;
+                    done_pulse  <= 1'b1;
                 end
 
                 default: begin
-                    busy       <= 1'b0;
-                    done_pulse <= 1'b0;
+                    busy        <= 1'b0;
+                    done_pulse  <= 1'b0;
                 end
             endcase
         end
